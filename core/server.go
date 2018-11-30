@@ -19,6 +19,7 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
+	Host   string
 	Port   string
 	Config *models.CentrifugoConfig
 }
@@ -101,6 +102,6 @@ func (s Server) Serve() {
 		go s.handleConnect(conn)
 	})
 
-	log.Println("Server starting at " + s.Port + " port...")
-	http.ListenAndServe(":"+s.Port, nil)
+	log.Println("Server starting at " + s.Host+":"+s.Port)
+	http.ListenAndServe(s.Host+":"+s.Port, nil)
 }
