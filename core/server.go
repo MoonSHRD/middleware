@@ -1,16 +1,13 @@
 package core
 
 import (
-	"encoding/json"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/websocket"
-	"log"
-	"middleware/handlers"
-	"time"
-
-	//"moonshard_middleware/helpers"
-	"middleware/models"
-	"net/http"
+    "encoding/json"
+    "github.com/gorilla/websocket"
+    "log"
+    "middleware/handlers"
+    //"moonshard_middleware/helpers"
+    "middleware/models"
+    "net/http"
 )
 
 var upgrader = websocket.Upgrader{
@@ -24,22 +21,19 @@ type Server struct {
 	Config *models.CentrifugoConfig
 }
 
-func (s Server) generateJWT(address string) string {
-	var mySigningKey = []byte(s.Config.Secret)
-	token := jwt.New(jwt.SigningMethodHS256)
-	claims := make(jwt.MapClaims)
-	claims["exp"] = time.Now().Add(time.Minute * 5).Unix()
-	//claims["iat"] = time.Now().Unix()
-	claims["sub"] = address
-	token.Claims = claims
-	//fmt.Printf("Token for user %v expires %v", claims["user"], claims["exp"])
-	tokenString, _ := token.SignedString(mySigningKey)
-	return tokenString
+var r_handlers = map[string]func(*websocket.Conn, *models.InData) {
+    "new_token": handlers.NewToken,
+    "message": handlers.SendMessage,
 }
 
 func (s Server) handleRequest(conn *websocket.Conn, in *models.InData) {
-	log.Println("sending answer")
-	conn.WriteMessage(handlers.GenerateNewJWT(s.generateJWT(in.Address)))
+    fHandler,err:=r_handlers[in.Type]
+    if err == false {
+        log.Println("wrong request")
+        conn.Close()
+        return
+    }
+    fHandler(conn,in)
 }
 
 func (s Server) handleConnect(conn *websocket.Conn) {
@@ -59,7 +53,7 @@ func (s Server) handleConnect(conn *websocket.Conn) {
 
 		switch in.Type {
 		case "auth":
-			authorized = handlers.HandleAuth(conn, &in, nonce, s.generateJWT(in.Address))
+			authorized = handlers.HandleAuth(conn, &in, nonce)
 			break
 		default:
 			if !authorized {
@@ -71,31 +65,12 @@ func (s Server) handleConnect(conn *websocket.Conn) {
 			}
 			break
 		}
-
-		//if in.Type == "auth" {
-		//    suc := handlers.VerifySig(in.Address, in.Data, []byte(nonce))
-		//    log.Println(suc)
-		//    if suc {
-		//        authorized =true
-		//        conn.WriteMessage(handlers.GenerateAuthSuccessRequest(in.Address))
-		//    } else {
-		//        conn.Close()
-		//        return
-		//    }
-		//} else {
-		//    log.Println("handling request")
-		//    if !authorized {
-		//        conn.Close()
-		//        return
-		//    } else {
-		//        log.Println("handling request")
-		//        handleRequest(conn,&in)
-		//    }
-		//}
 	}
 }
 
 func (s Server) Serve() {
+    handlers.SetConf(s.Config)
+    
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("user connecting")
 		conn, _ := upgrader.Upgrade(w, r, nil)

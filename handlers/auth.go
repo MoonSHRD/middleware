@@ -4,14 +4,26 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
+    "github.com/dgrijalva/jwt-go"
+    "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gorilla/websocket"
 	"log"
 	"math/rand"
 	"middleware/models"
+    "time"
 )
+
+type centConfInstance struct {
+    Instance *models.CentrifugoConfig
+}
+
+var centConf = centConfInstance{}
+
+func SetConf(conf *models.CentrifugoConfig) {
+    centConf.Instance=conf
+}
 
 func VerifySig(from, sigHex string, msg []byte) bool {
 	fromAddr := common.HexToAddress(from)
@@ -56,29 +68,19 @@ func GenerateAuthRequest(nonce string) (int, []byte) {
 	return 1, b
 }
 
-//func GenerateAuthSuccessRequest(address string) (int,[]byte) {
-//    b,e:=json.Marshal(models.OutData{"auth_success",GenerateJWT(address)})
-//    if e!=nil {
-//        log.Println(e)
-//    }
-//    return 1,b
-//}
-//
-//
-
-func GenerateNewJWT(gwt string) (int, []byte) {
-	b, e := json.Marshal(models.OutData{"newJWT", gwt})
+func GenerateNewJWTAnswer(address string) (int, []byte) {
+	b, e := json.Marshal(models.OutData{"newJWT", generateJWT(address)})
 	if e != nil {
 		log.Println(e)
 	}
 	return 1, b
 }
 
-func HandleAuth(conn *websocket.Conn, in *models.InData, nonce, gwt string) bool {
+func HandleAuth(conn *websocket.Conn, in *models.InData, nonce string) bool {
 	suc := VerifySig(in.Address, in.Data, []byte(nonce))
 	log.Println(suc)
 	if suc {
-		b, e := json.Marshal(models.OutData{"auth_success", gwt})
+		b, e := json.Marshal(models.OutData{"auth_success", generateJWT(in.Address)})
 		if e != nil {
 			log.Println(e)
 		}
@@ -87,4 +89,22 @@ func HandleAuth(conn *websocket.Conn, in *models.InData, nonce, gwt string) bool
 		conn.Close()
 	}
 	return suc
+}
+
+func generateJWT(address string) string {
+    var mySigningKey = []byte(centConf.Instance.Secret)
+    token := jwt.New(jwt.SigningMethodHS256)
+    claims := make(jwt.MapClaims)
+    claims["exp"] = time.Now().Add(time.Minute * 5).Unix()
+    //claims["iat"] = time.Now().Unix()
+    claims["sub"] = address
+    token.Claims = claims
+    //fmt.Printf("Token for user %v expires %v", claims["user"], claims["exp"])
+    tokenString, _ := token.SignedString(mySigningKey)
+    return tokenString
+}
+
+
+func NewToken(conn *websocket.Conn, in *models.InData) {
+    conn.WriteMessage(GenerateNewJWTAnswer(in.Address))
 }
